@@ -1,45 +1,71 @@
 const http = require("http");
+const express = require("express");
+
+const app = express();
+const server = http.createServer(app);
+
+const socket = require("socket.io");
+const io = socket(server);
 
 const PORT = 8000;
-const server = http.createServer();
 
-const io = require("socket.io")(server, {
-    transports: ["websocket", "polling"]
-});
+let users = [];
 
-const users = {};
+const messages = {
+    // channel names
+    public: [],
+    discussion: [],
+    chitchat: [],
+    code: [],
+}
 
-io.on("connection", client => {
+io.on("connection", socket => {
     console.log("USER CONNECTED");
 
-    client.on("username", username => {
+    socket.on("joinServer", (username) => {
         const user = {
-            name: username,
-            id: client.id
+            username,
+            id: socket.id,
         };
-        users[client.id] = user;
-        io.emit("connected", user);
-        io.emit("users", Object.values(users));
+        users.push(user);
+        io.emit("newUser", users);
     });
 
-    client.on("send", message => {
-        io.emit("message", {
-            text: message,
-            date: new Date().toISOString(),
-            user: users[client.id]
-        });
+    socket.on("joinRoom", (roomName, callback) => {
+        socket.join(roomName);
+        callback(messages[roomName]);
     });
 
-    client.on("disconnect", () => {
-        console.log("USER DICONNECTED");
-
-        const username = users[client.id];
-        delete users[client.id];
-        io.emit("disconnected", client.id);
+    socket.on("sendMessage", ({ content, receiver, sender, chatName, isChannel }) => {
+        if(isChannel) {
+            const payload = {
+                content,
+                chatName,
+                sender
+            };
+            socket.to(receiver).emit("newMessage", payload);
+        } else {
+            const payload = {
+                content,
+                chatName: sender,
+                sender
+            };
+            socket.to(to).emit("newMessage", payload);
+        }
+        if(messages[chatName]) {
+            messages[chatName].push({
+                sender,
+                content
+            });
+        }
     });
 
-})
+    socket.on("disconnect", () => {
+        users = users.filter(user => user.id !== socket.id);
+        io.emit("new user", users);
+    });
+});
 
 server.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
-})
+});
